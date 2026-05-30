@@ -1,0 +1,50 @@
+name: SICA Ticket
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * 1-5"
+
+jobs:
+  generate-ticket:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SICA_URL: https://restaurante.szn.ifsp.edu.br/sicaweb/home
+      SICA_PRONTUARIO: ${{ secrets.SICA_PRONTUARIO }}
+      DEST_EMAIL: ${{ secrets.DEST_EMAIL }}
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: "587"
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      HEADLESS: "true"
+      TIMEOUT_MS: "30000"
+      ARTIFACTS_DIR: artifacts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Generate and send ticket
+        run: python generate_ticket.py
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sica-ticket-artifacts
+          path: artifacts/
+          if-no-files-found: ignore
