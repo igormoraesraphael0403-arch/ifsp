@@ -4,6 +4,7 @@ import os
 import re
 import smtplib
 import sys
+import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
@@ -43,6 +44,8 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 TIMEOUT_MS = int(os.getenv("TIMEOUT_MS", "30000"))
 ARTIFACTS_DIR = Path(os.getenv("ARTIFACTS_DIR", "artifacts"))
+ERROR_PATH = ARTIFACTS_DIR / "last_error.txt"
+STATUS_PATH = ARTIFACTS_DIR / "status.txt"
 
 
 @dataclass
@@ -219,11 +222,33 @@ def send_email(message: EmailMessage) -> None:
         server.send_message(message)
 
 
+def validate_env() -> None:
+    required = {
+        "SICA_PRONTUARIO": PRONTUARIO,
+        "DEST_EMAIL": DEST_EMAIL,
+        "SMTP_USER": SMTP_USER,
+        "SMTP_PASS": SMTP_PASS,
+        "EMAIL_FROM": EMAIL_FROM,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise RuntimeError(
+            "Secrets/variáveis ausentes: " + ", ".join(missing)
+        )
+
+
+def write_status(message: str) -> None:
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    STATUS_PATH.write_text(message + "\n", encoding="utf-8")
+
+
 def main() -> int:
     try:
+        validate_env()
         result = generate_ticket()
         message = build_email(result)
         send_email(message)
+        write_status("OK: ticket processado e email enviado.")
         print("Ticket processado com sucesso.")
         if result.token:
             print(f"Token encontrado: {result.token}")
@@ -231,6 +256,10 @@ def main() -> int:
             print("Token não identificado automaticamente; screenshot enviada por email.")
         return 0
     except Exception as exc:
+        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+        error_text = "".join(traceback.format_exception(exc))
+        ERROR_PATH.write_text(error_text, encoding="utf-8")
+        write_status(f"ERRO: {exc}")
         print(f"Erro ao gerar/enviar ticket: {exc}", file=sys.stderr)
         return 1
 
