@@ -23,7 +23,8 @@ jobs:
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
       EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
       HEADLESS: "true"
-      TIMEOUT_MS: "30000"
+      TIMEOUT_MS: "90000"
+      GOTO_RETRIES: "3"
       ARTIFACTS_DIR: artifacts
 
     steps:
@@ -40,6 +41,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
+
+      - name: Check SICA connectivity
+        run: |
+          python - <<'PY'
+          import urllib.request
+          import ssl
+          url = "https://restaurante.szn.ifsp.edu.br/sicaweb/home"
+          context = ssl.create_default_context()
+          req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+          with urllib.request.urlopen(req, timeout=60, context=context) as response:
+              print("status:", response.status)
+              print("final_url:", response.geturl())
+              print("server:", response.headers.get("server"))
+          PY
 
       - name: Generate and send ticket
         run: python generate_ticket.py

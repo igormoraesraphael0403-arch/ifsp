@@ -4,6 +4,7 @@ import os
 import re
 import smtplib
 import sys
+import time
 import traceback
 from dataclasses import dataclass
 from datetime import datetime
@@ -42,7 +43,8 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
-TIMEOUT_MS = int(os.getenv("TIMEOUT_MS", "30000"))
+TIMEOUT_MS = int(os.getenv("TIMEOUT_MS", "90000"))
+GOTO_RETRIES = int(os.getenv("GOTO_RETRIES", "3"))
 ARTIFACTS_DIR = Path(os.getenv("ARTIFACTS_DIR", "artifacts"))
 ERROR_PATH = ARTIFACTS_DIR / "last_error.txt"
 STATUS_PATH = ARTIFACTS_DIR / "status.txt"
@@ -120,6 +122,26 @@ def extract_token(text: str) -> str | None:
     return None
 
 
+def goto_with_retries(page, url: str) -> None:
+    last_error = None
+    for attempt in range(1, GOTO_RETRIES + 1):
+        try:
+            wait_until = "commit" if attempt < GOTO_RETRIES else "domcontentloaded"
+            page.goto(url, wait_until=wait_until, timeout=TIMEOUT_MS)
+            if attempt < GOTO_RETRIES:
+                page.wait_for_timeout(4000)
+            return
+        except PlaywrightTimeoutError as exc:
+            last_error = exc
+            write_status(
+                f"Tentativa {attempt}/{GOTO_RETRIES} falhou ao abrir o site: {exc}"
+            )
+            if attempt < GOTO_RETRIES:
+                time.sleep(5)
+            continue
+    raise last_error
+
+
 def generate_ticket() -> TicketResult:
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = now_stamp()
@@ -128,11 +150,17 @@ def generate_ticket() -> TicketResult:
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=HEADLESS)
-        page = browser.new_page()
+        page = browser.new_page(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/136.0.0.0 Safari/537.36"
+            )
+        )
         page.set_default_timeout(TIMEOUT_MS)
 
         try:
-            page.goto(SITE_URL, wait_until="domcontentloaded")
+            goto_with_retries(page, SITE_URL)
             input_locator = find_prontuario_input(page)
             input_locator.fill(PRONTUARIO)
 
